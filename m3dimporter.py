@@ -88,7 +88,7 @@ def write_obj(Obj:MapObj, isherit, parent=None):
 
     bpy.context.collection.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
-    obj.select = True
+    obj.select_set(state=True)
 
     mesh = bpy.context.selected_objects[0].data
     for vert, normal in zip(mesh.vertices, Obj.normals):
@@ -102,7 +102,7 @@ def write_obj(Obj:MapObj, isherit, parent=None):
     
     obj.active_material = bpy.data.materials.get(Obj.material)
 
-    obj.select = False
+    obj.select_set(state=False)
 
     obj.rotation_euler.x = math.radians(90.0)
 
