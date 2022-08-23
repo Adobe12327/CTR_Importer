@@ -4,6 +4,7 @@ import bpy
 import addon_utils
 import os
 import math
+from . import DecodeTable
 
 def read_float32(f):
     return struct.unpack('f', f.read(4))[0]
@@ -21,10 +22,10 @@ def get_tstrip(values):
     result = []
     for i in range(0, len(values), 2):
         try:
-            a = values[i]-1
-            b = values[i+1]-1
-            c = values[i+2]-1
-            d = values[i+3]-1
+            a = values[i]
+            b = values[i+1]
+            c = values[i+2]
+            d = values[i+3]
             result.append((a,b,c))
             result.append((d,c,b))
         except:
@@ -34,192 +35,196 @@ def get_tstrip(values):
                 result.append((d,c,b))
     return result
 
-class ObjectObj():
+class _S_Material():
     def __init__(self):
-        super().__init__()
-        self.name = ''
-        self.vertices = []
-        self.uvs = []
-        self.normals = []
-        self.indices = []
-        self.inherit = []
-        self.material = ''
+        self.NameLen = 0
+        self.TextureName = ''
 
+class _S_BBox():
+    def __init__(self):
+        self.Coord = []
+        self.Max = []
+        self.Min = []
 
-def write_obj(Obj:ObjectObj, isherit, parent=None):
-    mesh = bpy.data.meshes.new("mesh")  # add a new mesh
-    indices = []
-    for indice in Obj.indices:
-        if indice[0] == 5:
-            tstrip = get_tstrip(indice[1])
-            for strip in tstrip:
-                indices.append((strip[0], strip[1], strip[2]))
-        elif indice[0] == 4:
-            for i in range(0, len(indice[1]), 3):
-                indices.append((indice[1][i]-1, indice[1][i+1]-1, indice[1][i+2]-1))
-    mesh.from_pydata(Obj.vertices, [], indices)
-    for f in mesh.polygons:
-        f.use_smooth = True
-    mesh.update()
-    obj = bpy.data.objects.new(Obj.name, mesh)
-    obj.data = mesh
+class _S_StripIndex():
+    def __init__(self):
+        self.Index = []
+        self.IndexNum = 0
+        self.GLMode = -1
 
-    bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(state=True)
+class C_SubMesh():
+    def __init__(self):
+        self.m_DisplayListID = -1
+        self.m_SubMeshName = ''
+        self.m_MaterialID = -1
+        self.m_nVertexNum = 0
+        self.m_nFaceNum = 0
+        self.m_nStripNum = 0
+        self.m_nLightNum = 0
+        self.m_VertexList = []
+        self.m_UVVertexList = []
+        self.m_VertexNList = []
+        self.m_StripIndex = []
 
-    mesh = bpy.context.selected_objects[0].data
-    for vert, normal in zip(mesh.vertices, Obj.normals):
-        vert.normal = normal
+    def Load(self, f):
+        NameLen = read_int32(f)
+        self.m_SubMeshName = f.read(NameLen).decode('ISO-8859-1')
+        self.m_MaterialID = read_int32(f)
+        self.m_nVertexNum = read_int32(f)
+        self.m_nFaceNum = read_int32(f)
+        self.m_nStripNum = read_int32(f)
+        self.m_nLightNum = read_int32(f)
+        if self.m_nVertexNum > 0:
+            for i in range(self.m_nVertexNum):
+                self.m_VertexList.append([read_float32(f), read_float32(f), read_float32(f)])
+                self.m_UVVertexList.append([read_float32(f), read_float32(f)])
+                self.m_VertexNList.append([read_float32(f), read_float32(f), read_float32(f)])
+        if self.m_nStripNum > 0:
+            for i in range(self.m_nStripNum):
+                strip = _S_StripIndex()
+                strip_num = read_int32(f)
+                self.m_StripIndex.append([strip, strip_num])
+                strip.IndexNum = read_int32(f)
+                for i in range(strip.IndexNum):
+                    strip.Index.append(read_int32(f))
 
-    mesh.uv_layers.new(name="UVMap")
+class C_Mesh():
+    def __init__(self):
+        self.m_BBox = _S_BBox()
+        self.m_SubMeshNum = 0
+        self.m_SubMesh = []
+        self.m_TextureShaderMode = 0
+        self.m_EnvTexID = -1
+        self.m_MeshID = ''
 
-    for face in obj.data.polygons:
-        for vert_idx, loop_idx in zip(face.vertices, face.loop_indices):
-            obj.data.uv_layers.active.data[loop_idx].uv = Obj.uvs[vert_idx]
+    def Load(self, f):
+        NameLen = read_int32(f)
+        temp = f.read(NameLen).decode('ISO-8859-1')
+        pdwRead = NameLen
+        self.m_MeshID = temp
+        self.m_SubMeshNum = read_int32(f)
+        if self.m_SubMeshNum > 0:
+            for i in range(self.m_SubMeshNum):
+                newsubmesh = C_SubMesh()
+                C_SubMesh.Load(newsubmesh, f)
+                self.m_SubMesh.append(newsubmesh)
+        self.m_BBox.Coord = [read_float32(f), read_float32(f), read_float32(f)]
+        self.m_BBox.Max = [read_float32(f), read_float32(f), read_float32(f)]
+        self.m_BBox.Min = [read_float32(f), read_float32(f), read_float32(f)]
 
-    obj.active_material = bpy.data.materials.get(Obj.material)
+def write_obj(Obj:C_SubMesh, isherit, parent=None):
+    if isinstance(Obj, C_SubMesh):
+        print(Obj.m_SubMeshName)
+        mesh = bpy.data.meshes.new("mesh")  # add a new mesh
+        indices = []
+        for indice in Obj.m_StripIndex:
+            if indice[1] == 5:
+                tstrip = get_tstrip(indice[0].Index)
+                for strip in tstrip:
+                    indices.append((strip[0], strip[1], strip[2]))
+            elif indice[1] == 4:
+                for i in range(0, len(indice[0].Index), 3):
+                    indices.append((indice[0].Index[i], indice[0].Index[i+1], indice[0].Index[i+2]))
+        mesh.from_pydata(Obj.m_VertexList, [], indices)
+        for f in mesh.polygons:
+            f.use_smooth = True
+        mesh.update()
+        obj = bpy.data.objects.new(Obj.m_SubMeshName, mesh)
+        obj.data = mesh
 
-    obj.select_set(state=False)
+        bpy.context.collection.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
 
-    obj.rotation_euler.x = math.radians(90.0)
-    if parent:
-        parented_wm = obj.matrix_world.copy()
-        obj.parent = bpy.data.objects[parent.name]
-        obj.matrix_world = parented_wm
+        mesh = bpy.context.selected_objects[0].data
+        for vert, normal in zip(mesh.vertices, Obj.m_VertexNList):
+            vert.normal = normal
 
-def read_o3d(filepath, txd):
+        mesh.uv_layers.new(name="UVMap")
+
+        for face in obj.data.polygons:
+            for vert_idx, loop_idx in zip(face.vertices, face.loop_indices):
+                obj.data.uv_layers.active.data[loop_idx].uv = Obj.m_UVVertexList[vert_idx]
+
+        obj.active_material = bpy.data.materials.get(Obj.m_MaterialID.TextureName)
+
+        obj.select_set(False)
+
+        if parent:
+            parented_wm = obj.matrix_world.copy()
+            obj.parent = bpy.data.objects[parent.name]
+            obj.matrix_world = parented_wm
+
+        return obj
+    elif isinstance(Obj, C_Mesh):
+        obj = bpy.data.objects.new("empty", None)
+        obj.name = Obj.m_MeshID
+        bpy.context.collection.objects.link(obj)
+        bpy.context.view_layer.objects.active = obj
+        if parent:
+            parented_wm = obj.matrix_world.copy()
+            obj.parent = bpy.data.objects[parent.name]
+            obj.matrix_world = parented_wm
+        return obj
+
+def __ROR__(num, count, bits=8):
+    return ((num >> count) | (num << (bits - count))) & ((0b1<<bits) - 1)
+
+def ConvertToTxt_Old(data, size):
+    for i in range(size):
+        data[i] = __ROR__(data[i], 1) ^ 0x9E
+    return data
+
+def Decode(nCodeNum, pbyData, nLen):
+    for i in range(nLen):
+        pbyData[i] = DecodeTable.g_chDecodeCode1[nCodeNum][pbyData[i]]
+    return pbyData
+
+def read_o3d(filepath, txd, path_add):
     f = open(filepath, 'rb')
-    Objcount = read_int32(f)
-    Objs = []
-    TexturesCount = read_int32(f)
-    for i in range(Objcount):
-        useless = read_int32(f)
-        f.read(useless)
-        subMeshCount = read_int32(f)-1
-        meshNameCount = read_int32(f)
-        meshName = f.read(meshNameCount).decode('ISO-8859-1')
-        MaterialIndex = read_int32(f)
-        VerticesCount = read_int32(f)
-        Unk2 = read_int32(f)
-        IndicesCount = read_int32(f)
-        f.read(4)
-        startoffset = f.tell()
-        Vertices = []
-        for i in range(VerticesCount):
-            x = struct.unpack('f', f.read(4))[0]
-            y = struct.unpack('f', f.read(4))[0]
-            z = struct.unpack('f', f.read(4))[0]
-            Vertices.append([x,y,z])
-            f.read(20)
-        f.seek(startoffset+(4*3))
-        UVs = []
-        for i in range(VerticesCount):
-            u = struct.unpack('f', f.read(4))[0]
-            v = struct.unpack('f', f.read(4))[0]
-            UVs.append([u,v])
-            f.read(24)
-        f.seek(startoffset+(4*5))
-        Normals = []
-        for i in range(VerticesCount):
-            x = struct.unpack('f', f.read(4))[0]
-            y = struct.unpack('f', f.read(4))[0]
-            z = struct.unpack('f', f.read(4))[0]
-            Normals.append([x,y,z])
-            f.read(20)
-        f.seek(-20, 1)
-        Indices = []
-        for i in range(IndicesCount):
-            FaceType = read_int32(f)
-            Counts = read_int32(f)
-            asdf = []
-            for i in range(Counts):
-                asdf.append(read_int32(f)+1)
-            Indices.append([FaceType, asdf])
+    Meshes = []
+    meshNum = read_int32(f)
+    materialNum = read_int32(f)
+    if not meshNum <= 0:
+        for i in range(meshNum):
+            newmesh = C_Mesh()
+            C_Mesh.Load(newmesh, f)
+            Meshes.append(newmesh)
+    Material = []
+    if materialNum > 0:
+        for i in range(materialNum):
+            mat = _S_Material()
+            mat.NameLen = read_int32(f)
+            mat.TextureName =  f.read(mat.NameLen).decode('ISO-8859-1')
+            Material.append(mat)
 
-        Obj = ObjectObj()
-        Obj.name = meshName
-        Obj.vertices = Vertices
-        Obj.uvs = UVs
-        Obj.normals = Normals
-        Obj.indices = Indices
-        Obj.material = MaterialIndex
-        Objs.append(Obj)
+    encodeNum = int.from_bytes(ConvertToTxt_Old(bytearray(f.read(4)), 4), 'little')
+    if not encodeNum >= 0 and encodeNum <= 100:
+        print('File Error')
+        return
+    nameSize = int.from_bytes(Decode(encodeNum, ConvertToTxt_Old(bytearray(f.read(4)), 4), 4), 'little')
+    if nameSize < 1 or nameSize > 40:
+        print('File Error')
+        return
+    saveName = Decode(encodeNum, ConvertToTxt_Old(bytearray(f.read(nameSize)), nameSize), nameSize).decode('ISO-8859-1')
 
-        pmesh = meshName
-        for i in range(subMeshCount):
-            meshNameCount = read_int32(f)
-            meshName = f.read(meshNameCount).decode('ISO-8859-1')
-            MaterialIndex = read_int32(f)
-            VerticesCount = read_int32(f)
-            Unk2 = read_int32(f)
-            IndicesCount = read_int32(f)
-            f.read(4)
-            startoffset = f.tell()
-            Vertices = []
-            for i in range(VerticesCount):
-                x = struct.unpack('f', f.read(4))[0]
-                y = struct.unpack('f', f.read(4))[0]
-                z = struct.unpack('f', f.read(4))[0]
-                Vertices.append([x,y,z])
-                f.read(20)
-            f.seek(startoffset+(4*3))
-            UVs = []
-            for i in range(VerticesCount):
-                u = struct.unpack('f', f.read(4))[0]
-                v = struct.unpack('f', f.read(4))[0]
-                UVs.append([u,v])
-                f.read(24)
-            f.seek(startoffset+(4*5))
-            Normals = []
-            for i in range(VerticesCount):
-                x = struct.unpack('f', f.read(4))[0]
-                y = struct.unpack('f', f.read(4))[0]
-                z = struct.unpack('f', f.read(4))[0]
-                Normals.append([x,y,z])
-                f.read(20)
-            f.seek(-20, 1)
-            Indices = []
-            for i in range(IndicesCount):
-                FaceType = read_int32(f)
-                Counts = read_int32(f)
-                asdf = []
-                for i in range(Counts):
-                    asdf.append(read_int32(f)+1)
-                Indices.append([FaceType, asdf])
-            Objj = ObjectObj()
-            Objj.name = meshName
-            Objj.vertices = Vertices
-            Objj.uvs = UVs
-            Objj.normals = Normals
-            Objj.indices = Indices
-            Objj.material = MaterialIndex
-            Obj.inherit.append(Objj)
+    if not txd == '':
+        txd += path_add
+        fp = ''
+        for mod in addon_utils.modules():
+            if mod.bl_info['name'] == "CTR Importer":
+                fp = mod.__file__
+                fp = fp.replace('__init__.py', '')
+            else:
+                pass
 
-        f.read(36)
-
-    fp = ''
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == "CTR Importer":
-            fp = mod.__file__
-            fp = fp.replace('__init__.py', '')
-        else:
+        try: 
+            os.makedirs(fp + "\\textures")
+        except:
             pass
-    
-    Textures = []
-    for i in range(TexturesCount):
-        TextureNameCount = read_int32(f)
-        TextureName = f.read(TextureNameCount).decode('ISO-8859-1')
-        Textures.append(TextureName)
 
-    try: 
-        os.makedirs(fp + "\\textures")
-    except:
-        pass
-
-    for texture in Textures:
-        file = txd + '\\' +  texture.split('.')[0] + '.ss'
-        try:
+        for texture in Material:
+            file = txd + '\\' +  texture.TextureName.split('.')[0] + '.ss'
             f = open(file, 'rb')
             f.read(4)
             Width = read_int32(f)
@@ -264,41 +269,36 @@ def read_o3d(filepath, txd):
                 ff = open(fp+'\\textures\\' + os.path.basename(file).split(".")[0] + ".tga", 'wb')
                 ff.write(Final)
                 ff.close()
-        except:
-            pass
-        mat = bpy.data.materials.new(texture)
-        if texture.split('.')[1].lower() == "tga":
-            mat.blend_method = "CLIP"
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes["Principled BSDF"]
-        texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
-        try:
-            texImage.image = bpy.data.images.load(fp+'textures/'+texture)
-            mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-            mat.node_tree.links.new(bsdf.inputs['Alpha'], texImage.outputs['Alpha'])
-        except:
-            if texture.split(".")[1] == "bmp":
-                texture.replace("bmp", "tga")
-            else:
-                texture.replace("tga", "bmp")
+            mat = bpy.data.materials.new(texture.TextureName)
+            if texture.TextureName.split('.')[1].lower() == "tga":
+                mat.blend_method = "CLIP"
+            mat.use_nodes = True
+            bsdf = mat.node_tree.nodes["Principled BSDF"]
+            texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
             try:
-                texImage.image = bpy.data.images.load(fp+'textures/'+texture)
+                texImage.image = bpy.data.images.load(fp+'textures/'+texture.TextureName)
                 mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
                 mat.node_tree.links.new(bsdf.inputs['Alpha'], texImage.outputs['Alpha'])
             except:
-                print("Texture " + texture.split(".")[0] + " Couldn't find")
-            
-    for obj in Objs:
-        obj.material = Textures[obj.material]
-        for objj in obj.inherit:
-            objj.material = Textures[objj.material]
+                if texture.TextureName.split(".")[1] == "bmp":
+                    texture.TextureName.replace("bmp", "tga")
+                else:
+                    texture.TextureName.replace("tga", "bmp")
+                try:
+                    texImage.image = bpy.data.images.load(fp+'textures/'+texture.TextureName)
+                    mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+                    mat.node_tree.links.new(bsdf.inputs['Alpha'], texImage.outputs['Alpha'])
+                except:
+                    print("Texture " + texture.TextureName.split(".")[0] + " Couldn't find")
 
+    root = bpy.data.objects.new("empty", None)
+    root.name = os.path.basename(filepath)
+    root.rotation_euler.x = math.radians(90.0)
+    bpy.context.collection.objects.link(root)
+    bpy.context.view_layer.objects.active = root
 
-    
-
-    for i in range(len(Objs)):
-        write_obj(Objs[i], False)
-        for k in range(len(Objs[i].inherit)):
-            write_obj(Objs[i].inherit[k], True, Objs[i])
-
-    return Objs
+    for obj in Meshes:
+        parent = write_obj(obj, True, root)
+        for objj in obj.m_SubMesh:
+            objj.m_MaterialID = Material[objj.m_MaterialID]
+            write_obj(objj, True, parent)
