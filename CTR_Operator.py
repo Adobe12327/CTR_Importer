@@ -5,127 +5,6 @@ import bpy
 from . import b3dimporter
 from . import o3dimporter
 from . import m3dimporter
-fp = ''
-
-class TexDialog_m3d(bpy.types.Operator):
-    bl_idname = "ctr.txdialog_m3d"
-    bl_label = "텍스쳐 경로"
-    text: bpy.props.StringProperty(name='경로', default="")
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def draw(self, context):
-        row = self.layout
-        row.prop(self, "text", text="경로")
-
-    def execute(self, context):
-        self.text += "\\res\\Circuit"
-        m3dimporter.read_m3d(fp, self.text)
-        return {"FINISHED"}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-class TexDialog_b3d(bpy.types.Operator):
-    bl_idname = "ctr.txdialog_b3d"
-    bl_label = "텍스쳐 경로"
-    text: bpy.props.StringProperty(name='경로', default="")
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def draw(self, context):
-        row = self.layout
-        row.prop(self, "text", text="경로")
-
-    def execute(self, context):
-        self.text += "\\res\\PartTex"
-        b3dimporter.read_b3d(fp, self.text)
-        return {"FINISHED"}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-class TexDialog_o3d(bpy.types.Operator):
-    bl_idname = "ctr.txdialog_o3d"
-    bl_label = "텍스쳐 경로"
-    text: bpy.props.StringProperty(name='경로', default="")
-
-    @classmethod
-    def poll(cls, context):
-        return True
-
-    def draw(self, context):
-        row = self.layout
-        row.prop(self, "text", text="경로")
-
-    def execute(self, context):
-        self.text += "\\res\\PartTex"
-        o3dimporter.read_o3d(fp, self.text)
-        return {"FINISHED"}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-def read_b3d(self, context, filepath):
-    global fp
-    fp = filepath
-    filearr = []
-    fip = ''
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == "CTR Importer":
-            fip = mod.__file__
-            fip = fip.replace('__init__.py', '')
-        else:
-            pass
-    try: 
-        os.makedirs(fip + "\\textures")
-    except:
-        pass
-    bpy.ops.ctr.txdialog_b3d('INVOKE_DEFAULT')
-
-    return {'FINISHED'}
-
-def read_o3d(self, context, filepath):
-    global fp
-    fp = filepath
-    fip = ''
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == "CTR Importer":
-            fip = mod.__file__
-            fip = fip.replace('__init__.py', '')
-        else:
-            pass
-    try: 
-        os.makedirs(fip + "\\textures")
-    except:
-        pass
-    
-    bpy.ops.ctr.txdialog_o3d('INVOKE_DEFAULT')
-
-    return {'FINISHED'}
-
-def read_m3d(self, context, filepath):
-    global fp
-    fp = filepath
-    fip = ''
-    for mod in addon_utils.modules():
-        if mod.bl_info['name'] == "CTR Importer":
-            fip = mod.__file__
-            fip = fip.replace('__init__.py', '')
-        else:
-            pass
-    try: 
-        os.makedirs(fip + "\\textures")
-    except:
-        pass
-
-    bpy.ops.ctr.txdialog_m3d('INVOKE_DEFAULT')
-
-    return {'FINISHED'}
 
 def export_ctrm(self, context, filepath):
     ff = open(filepath, 'wb')
@@ -180,6 +59,7 @@ class ImportB3D(Operator, ImportHelper):
     """CTR Vehicle Import"""
     bl_idname = "import_b3d.import"  # important since its how bpy.ops.import_test.some_data is constructed
     bl_label = "Import B3D"
+    bl_options = {'REGISTER', 'UNDO'}
 
     # ImportHelper mixin class uses this
     filename_ext = ".b3d"
@@ -190,13 +70,20 @@ class ImportB3D(Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "ctr_texture_dir")
+
     def execute(self, context):
-        return read_b3d(self, context, self.filepath)
+        path_add =  "\\res\\PartTex"
+        b3dimporter.read_b3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        return {'FINISHED'}
 
 class ImportO3D(Operator, ImportHelper):
     """CTR Model Import"""
     bl_idname = "import_o3d.import"  # important since its how bpy.ops.import_test.some_data is constructed
     bl_label = "Import O3D"
+    bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
     # ImportHelper mixin class uses this
     filename_ext = ".o3d"
@@ -207,13 +94,20 @@ class ImportO3D(Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "ctr_texture_dir")
+
     def execute(self, context):
-        return read_o3d(self, context, self.filepath)
+        path_add =  "\\res\\PartTex"
+        o3dimporter.read_o3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        return {'FINISHED'}
 
 class ImportM3D(Operator, ImportHelper):
     """CTR Map Import"""
     bl_idname = "import_m3d.import"  # important since its how bpy.ops.import_test.some_data is constructed
     bl_label = "Import M3D"
+    bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
     # ImportHelper mixin class uses this
     filename_ext = ".m3d"
@@ -224,8 +118,14 @@ class ImportM3D(Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene, "ctr_texture_dir")
+
     def execute(self, context):
-        return read_m3d(self, context, self.filepath)
+        path_add =  "\\res\\Circuit"
+        m3dimporter.read_m3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        return {'FINISHED'}
 
 class ExportCTRM(Operator, ImportHelper):
     """CTR Model Export"""
