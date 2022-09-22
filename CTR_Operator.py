@@ -26,13 +26,13 @@ def Encode_Old(data):
 def __ROL__(num, count, bits=8): 
     return ((num << count) | (num >> (bits - count))) & ((0b1<<bits) - 1)
 
-def read_submesh(car, submesh):
+def read_submesh(Material, submesh):
     newsubmesh = C_SubMesh()
     newsubmesh.m_SubMeshName = submesh.name.split('.')[0]
     materialname = submesh.active_material.name
-    if not materialname in car.Material:
-        car.Material.append(materialname)
-    newsubmesh.m_MaterialID = car.Material.index(materialname)
+    if not materialname in Material:
+        Material.append(materialname)
+    newsubmesh.m_MaterialID = Material.index(materialname)
     newsubmesh.m_nVertexNum = len(submesh.data.vertices)
     newsubmesh.m_nFaceNum = len(submesh.data.polygons)*3
     for i in range(len(submesh.data.vertices)):
@@ -96,7 +96,65 @@ def write_mesh(mesh:C_Mesh):
     final += struct.pack("f", mesh.m_BBox.Min[1])
     final += struct.pack("f", mesh.m_BBox.Min[2])
     return final
+
+def export_o3d(self, context:bpy.types.Context, filepath):
+    f = open(filepath, 'wb')
+    final = b''
+    root = bpy.context.selected_objects[0]
+    Meshes = []
+    Materials = []
+    for meshs in root.children:
+        newmesh = C_Mesh()
+        newmesh.m_SubMeshNum = len(meshs.children)
+        newmesh.m_MeshID = meshs.name
+        for submesh in meshs.children:
+            newsubmesh = read_submesh(Materials, submesh)
+            newmesh.m_SubMesh.append(newsubmesh)
+        minx, miny, minz = (999999.0,)*3
+        maxx, maxy, maxz = (-999999.0,)*3
+        location = [0.0,]*3
+        for submesh in meshs.children:
+            for v in submesh.bound_box:
+                v_world = submesh.matrix_world @ mathutils.Vector((v[0],v[1],v[2]))
+
+                if v_world[0] < minx:
+                    minx = v_world[0]
+                if v_world[0] > maxx:
+                    maxx = v_world[0]
+
+                if v_world[1] < miny:
+                    miny = v_world[1]
+                if v_world[1] > maxy:
+                    maxy = v_world[1]
+
+                if v_world[2] < minz:
+                    minz = v_world[2]
+                if v_world[2] > maxz:
+                    maxz = v_world[2]
+        location[0] = minx+((maxx-minx)/2)
+        location[1] = miny+((maxy-miny)/2)
+        location[2] = minz+((maxz-minz)/2)
+        newmesh.m_BBox.Min = [minx, miny, minz]
+        newmesh.m_BBox.Max = [maxx, maxy, maxz]
+        newmesh.m_BBox.Coord = location
+        Meshes.append(newmesh)
+    final += len(Meshes).to_bytes(4, "little")
+    final += len(Materials).to_bytes(4, "little")
+
+    for i in range(len(Meshes)):
+        final += write_mesh(Meshes[i])
+
+    for material in Materials:
+        final += len(material).to_bytes(4, "little")
+        final += material.encode("ANSI")
     
+    encodenum = random.randint(0, 99)
+    final += Encode_Old(encodenum.to_bytes(4, "little"))
+    final += Encode_Old(Encode(encodenum, len(root.name).to_bytes(4, "little")))
+    final += Encode_Old(Encode(encodenum, root.name.encode("ANSI")))
+    f.write(final)
+    f.close()
+    return {'FINISHED'}
 
 def export_b3d(self, context:bpy.types.Context, filepath):
     f = open(filepath, 'wb')
@@ -113,7 +171,7 @@ def export_b3d(self, context:bpy.types.Context, filepath):
             newmesh.m_BBox.Min = [-999999, -999999, -999999]
             newmesh.m_BBox.Max = [999999, 999999, 999999]
             for submesh in meshs.children:
-                newsubmesh = read_submesh(car, submesh)
+                newsubmesh = read_submesh(car.Material, submesh)
                 newmesh.m_SubMesh.append(newsubmesh)
             newmesh.m_SubMeshNum = len(newmesh.m_SubMesh)
             car.LodBody.append(newmesh)
@@ -121,7 +179,7 @@ def export_b3d(self, context:bpy.types.Context, filepath):
             newmesh = C_Mesh()
             newmesh.m_SubMeshNum = len(meshs.children)
             for submesh in meshs.children:
-                newsubmesh = read_submesh(car, submesh)
+                newsubmesh = read_submesh(car.Material, submesh)
                 newmesh.m_SubMesh.append(newsubmesh)
             minx, miny, minz = (999999.0,)*3
             maxx, maxy, maxz = (-999999.0,)*3
@@ -222,7 +280,7 @@ class ImportO3D(Operator, ImportHelper):
 
     def execute(self, context):
         path_add =  "\\res\\PartTex"
-        o3dimporter.read_o3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        o3dimporter.read_o3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add, context)
         return {'FINISHED'}
 
 class ImportM3D(Operator, ImportHelper):
@@ -246,7 +304,7 @@ class ImportM3D(Operator, ImportHelper):
 
     def execute(self, context):
         path_add =  "\\res\\Circuit"
-        m3dimporter.read_m3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        m3dimporter.read_m3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add, context)
         return {'FINISHED'}
 
 class ExportB3D(Operator, ExportHelper):
@@ -265,3 +323,20 @@ class ExportB3D(Operator, ExportHelper):
 
     def execute(self, context):
         return export_b3d(self, context, self.filepath)
+
+class ExportO3D(Operator, ExportHelper):
+    """CTR Object Export"""
+    bl_idname = "export_o3d.import"  # important since its how bpy.ops.import_test.some_data is constructed
+    bl_label = "Export o3d"
+
+    # ImportHelper mixin class uses this
+    filename_ext = ".o3d"
+
+    filter_glob: StringProperty(
+        default="*.o3d",
+        options={'HIDDEN'},
+        maxlen=255,  # Max internal buffer length, longer would be clamped.
+    )
+
+    def execute(self, context):
+        return export_o3d(self, context, self.filepath)
