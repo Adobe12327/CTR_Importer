@@ -107,7 +107,7 @@ def get_tstrip(value):
             pass
     return result
 
-def write_obj(Obj:C_SubMesh, isherit, parent=None):
+def write_obj(Obj:C_SubMesh, parent=None):
     if isinstance(Obj, C_SubMesh):
         mesh = bpy.data.meshes.new(Obj.m_SubMeshName)  # add a new mesh
         indices = []
@@ -253,4 +253,232 @@ def DecodeSS(mat, txd, fp):
                 except:
                     print("Texture " + texture.TextureName.split(".")[0] + " Couldn't find")
         except FileNotFoundError:
-            break
+            pass
+
+class _S_Face():
+    def __init__(self):
+        self.Normal = []
+        self.Vertex = []
+
+class _S_Gate():
+    def __init__(self):
+        self.GateID = 0
+        self.BBox = _S_BBox()
+        self.Face = [_S_Face(), _S_Face()]
+
+    def Load(self, f):
+        self.BBox.Coord = [read_float32(f), read_float32(f), read_float32(f)]
+        self.BBox.Max = [read_float32(f), read_float32(f), read_float32(f)]
+        self.BBox.Min = [read_float32(f), read_float32(f), read_float32(f)]
+        self.Face[0].Normal = [read_float32(f), read_float32(f), read_float32(f)]
+        self.Face[0].Vertex = [[[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]]]
+        self.Face[1].Normal = [read_float32(f), read_float32(f), read_float32(f)]
+        self.Face[1].Vertex = [[[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]]]
+
+class _S_CModule():
+    def __init__(self):
+        self.Attribute = 0
+        self.FaceNum = 0
+        self.BBox = _S_BBox()
+        self.Face = []
+    
+    def Load(self, f):
+        self.Attribute = read_int32(f)
+        self.FaceNum = read_int32(f)
+        self.BBox.Coord = [read_float32(f), read_float32(f), read_float32(f)]
+        self.BBox.Max = [read_float32(f), read_float32(f), read_float32(f)]
+        self.BBox.Min = [read_float32(f), read_float32(f), read_float32(f)]
+        for i in range(self.FaceNum):
+            face = _S_Face()
+            face.Normal = [read_float32(f), read_float32(f), read_float32(f)]
+            face.Vertex = [[[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]], [[read_float32(f), read_float32(f), read_float32(f)]]]
+
+
+class _S_Collision():
+    def __init__(self):
+        self.RoadModuleNum = 0
+        self.FenceModuleNum = 0
+    
+    def Load(self, f):
+        self.RoadModuleNum = read_int32(f)
+        self.FenceModuleNum = read_int32(f)
+        for i in range(self.RoadModuleNum):
+            module = _S_CModule()
+            module.Load(f)
+        for i in range(self.FenceModuleNum):
+            module = _S_CModule()
+            module.Load(f)
+
+def loadmesh(mesh, root, track):
+    if mesh.m_SubMeshNum == 1:
+        mesh.m_SubMesh[0].m_MaterialID = track.m_Material[mesh.m_SubMesh[0].m_MaterialID]
+        write_obj(mesh.m_SubMesh[0], root)
+    else:
+        parent = write_obj(mesh, root)
+        for sub in mesh.m_SubMesh:
+            sub.m_MaterialID = track.m_Material[sub.m_MaterialID]
+            write_obj(sub, parent)
+
+class C_Node():
+    def __init__(self):
+        self.m_nNearNodeNum = 0
+        self.m_nStructureNum = 0
+        self.m_nInstallNum = 0
+        self.m_nUnderSignNum = 0
+        self.m_nDummyNum = 0
+        self.m_nLightNum = 0
+        self.m_nGateNum = 0
+        self.m_nDestNum = 0
+        self.m_OneSideInstallNum = 0
+        self.m_nLightMapNum = 0
+
+        self.m_nGuildFlagNum = 0
+        self.m_BillboardNum = 0
+        self.m_CheckPointNum = 0
+
+        self.m_ReservedNum = []
+
+        self.m_RoadAttachmentNum = 0
+        self.m_PokjuZoneNum = 0
+        self.m_GuildBattleZoneNum = 0
+        self.m_DriftZoneNum = 0
+        self.m_MyNodeIndex = 0
+        self.m_NearNodeIndex = 0
+        self.m_RoadAttachmentIndex = 0
+
+        self.m_Road = C_Mesh()
+        self.m_Fence = C_Mesh()
+        self.m_Structure = []
+        self.m_Install = []
+        self.m_UnderSign = []
+        self.m_Dummy = []
+        self.m_Light = []
+        self.m_Gate = []
+        self.m_Dest = []
+        self.m_OneSideInstall = []
+        self.m_LightMap = []
+        self.m_GuildFlag = []
+        self.m_Billboard = []
+        self.m_CheckPoint = []
+        self.m_RoadAttachment = []
+        self.m_PokjuZone = []
+        self.m_GuildBattleZone = []
+        self.m_DriftZone = []
+        self.m_CollisionInfo = []
+    def Load(self, f, MapVersion):
+        self.m_nNearNodeNum = read_int32(f)
+        self.m_nStructureNum = read_int32(f)
+        self.m_nInstallNum = read_int32(f)
+        self.m_nUnderSignNum = read_int32(f)
+        self.m_nDummyNum = read_int32(f)
+        self.m_nLightNum = read_int32(f)
+        self.m_nGateNum = read_int32(f)
+        self.m_nDestNum = read_int32(f)
+        self.m_OneSideInstallNum = read_int32(f)
+        self.m_nLightMapNum = read_int32(f)
+
+        if MapVersion >= 5:
+            self.m_nGuildFlagNum = read_int32(f)
+        self.m_BillboardNum = read_int32(f)
+        self.m_CheckPointNum = read_int32(f)
+        if MapVersion >= 4:
+            self.m_RoadAttachmentNum = read_int32(f)
+
+        for i in range(27):
+            self.m_ReservedNum.append(read_int32(f))
+        if MapVersion >= 2:
+            self.m_PokjuZoneNum = read_int32(f)
+        if MapVersion >= 5:
+            self.m_GuildBattleZoneNum = read_int32(f)
+        if MapVersion >= 6:
+            self.m_DriftZoneNum = read_int32(f)
+        f.read(12*3)
+        self.m_Road.Load(f)
+        self.m_Fence.Load(f)
+        for i in range(self.m_nNearNodeNum):
+            read_int32(f)
+        for i in range(self.m_nStructureNum):
+            self.m_Structure.append(read_int32(f))
+        for i in range(self.m_nInstallNum):
+            self.m_Install.append(read_int32(f))
+        for i in range(self.m_nUnderSignNum):
+            self.m_UnderSign.append(read_int32(f))
+        for i in range(self.m_nDummyNum):
+            self.m_Dummy.append(read_int32(f))
+        for i in range(self.m_nLightNum):
+            self.m_Light.append(read_int32(f))
+        for i in range(self.m_nGateNum):
+            self.m_Gate.append(read_int32(f))
+        for i in range(self.m_nDestNum):
+            self.m_Dest.append(read_int32(f))
+        for i in range(self.m_OneSideInstallNum):
+            self.m_OneSideInstall.append(read_int32(f))
+        for i in range(self.m_nLightMapNum):
+            self.m_LightMap.append(read_int32(f))
+        if MapVersion >= 5:
+            for i in range(self.m_nGuildFlagNum):
+                self.m_GuildFlag.append(read_int32(f))
+        for i in range(self.m_BillboardNum):
+            self.m_Billboard.append(read_int32(f))
+        for i in range(self.m_CheckPointNum):
+            self.m_CheckPoint.append(read_int32(f))
+        if MapVersion >= 4:
+            self.m_RoadAttachment.append(read_int32(f))
+        for i in range(27):
+            f.read(4*self.m_ReservedNum[i])
+        if MapVersion >= 2:
+            for i in range(self.m_PokjuZoneNum):
+                self.m_PokjuZone.append(read_int32(f))
+        if MapVersion >= 5:
+            for i in range(self.m_GuildBattleZoneNum):
+                self.m_GuildBattleZone.append(read_int32(f))
+        if MapVersion >= 6:
+            for i in range(self.m_DriftZoneNum):
+                self.m_DriftZone.append(read_int32(f))
+        col = _S_Collision()
+        col.Load(f)
+
+
+class C_Track():
+    def __init__(self):
+        self.MapVersion = 0
+        self.m_nNodeNum = 0
+        self.m_nMaterialNum = 0
+        self.m_nStructureNum = 0
+        self.m_nInstallNum = 0
+        self.m_nUnderSignNum = 0
+        self.m_nDummyNum = 0
+        self.m_nLightNum = 0
+        self.m_nGateNum = 0
+        self.m_nDestNum = 0
+        self.m_WarpZoneNum = 0
+        self.m_OneSideInstallNum = 0
+        self.m_nLightMapNum = 0
+
+        #map version 5 이상
+        self.m_nGuildFlagNum = 0
+        self.m_BillboardNum = 0
+        self.m_CheckPointNum = 0
+
+        #map version 4 이상
+        self.m_nRoadAttachmentNum = 0
+
+        self.m_ReservedNum = []
+
+        #map version 2 이상
+        self.m_PokjuZoneNum = 0
+        #map version 3 이상
+        self.m_AdvencedZoneNum = 0
+        #map version 5 이상
+        self.m_GuildBattleZoneNum = 0
+        #map version 6 이상
+        self.m_DriftZoneNum = 0
+
+        self.m_Node = []
+        self.m_Material = []
+        self.m_Structure = []
+        self.m_Install = []
+        self.m_UnderSign = []
+        self.m_Dummy = []
+        self.m_Light = []
+        self.m_Gate = []
