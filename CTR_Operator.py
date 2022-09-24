@@ -256,7 +256,7 @@ class ImportB3D(Operator, ImportHelper):
 
     def execute(self, context):
         path_add =  "\\res\\PartTex"
-        b3dimporter.read_b3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add)
+        b3dimporter.read_b3d(self.properties.filepath, context.scene.ctr_texture_dir, path_add, context)
         return {'FINISHED'}
 
 class ImportO3D(Operator, ImportHelper):
