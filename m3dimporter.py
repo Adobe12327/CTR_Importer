@@ -1,278 +1,73 @@
-from codecs import StreamReader
+import os
+import bpy
 import math
 import addon_utils
-import struct
-import bpy
-import os 
-import bmesh
+from .utils import read_int32, C_Mesh, _S_Material, C_Track, C_Node, _S_Gate, DecodeSS, write_obj, loadmesh
 
-def read_float32(f):
-    return round(struct.unpack('f', f.read(4))[0], 4)
+def load_mesh(f, track, name, root, count):
+    rooot = bpy.data.objects.new("empty", None)
+    rooot.name = name
+    bpy.context.collection.objects.link(rooot)
+    bpy.context.view_layer.objects.active = rooot
+    rooot.parent = bpy.data.objects[root.name]
+    for i in range(count):
+        newmesh = C_Mesh()
+        C_Mesh.Load(newmesh, f)
+        loadmesh(newmesh, rooot, track)
 
-def read_float16(f):
-    return round(struct.unpack('f', f.read(2))[0], 4)
-
-def read_int32(f):
-    return int.from_bytes(f.read(4), 'little')
-
-def read_int16(f):
-    return int.from_bytes(f.read(2), 'little')
-
-def get_tstrip(values):
-    result = []
-    for i in range(0, len(values), 2):
-        try:
-            a = values[i]-1
-            b = values[i+1]-1
-            c = values[i+2]-1
-            d = values[i+3]-1
-            result.append((a,b,c))
-            result.append((d,c,b))
-        except:
-            if a != None and b != None and c != None:
-                result.append((a,b,c))
-            if b != None and c != None and b != None:
-                result.append((d,c,b))
-    return result
-
-class MapObj():
-    def __init__(self):
-        super().__init__()
-        self.name = ''
-        self.vertices = []
-        self.uvs = []
-        self.normals = []
-        self.indices = []
-        self.inherit = []
-        self.material = ''
-
-# def write_obj(Obj:MapObj, isherit, parent=None):
-#     if isherit == True:
-#         ff = open(parent.name+'_'+Obj.name+'.obj', 'w')
-#         Obj.name = parent.name+'_'+Obj.name
-#     else:
-#         ff = open(Obj.name+'.obj', 'w')
-#         Obj.name = Obj.name
-#         ff.write(f"g {Obj.name}\n")
-#     for vert in Obj.vertices:
-#         ff.write(f'v {vert[0]} {vert[1]} {vert[2]}\n')
-#     for uv in Obj.uvs:
-#         ff.write(f'vt {uv[0]} {uv[1]}\n')
-#     for normal in Obj.normals:
-#         ff.write(f'vn {normal[0]} {normal[1]} {normal[2]}\n')
-#     for indice in Obj.indices:
-#         if indice[0] == 5:
-#             tstrip = get_tstrip(indice[1])
-#             for strip in tstrip:
-#                 ff.write(f'f {strip[0]}/{strip[0]}/{strip[0]} {strip[1]}/{strip[1]}/{strip[1]} {strip[2]}/{strip[2]}/{strip[2]}\n')
-#         elif indice[0] == 4:
-#             for i in range(0, len(indice[1]), 3):
-#                 ff.write(f'f {indice[1][i]}/{indice[1][i]}/{indice[1][i]} {indice[1][i+1]}/{indice[1][i+1]}/{indice[1][i+1]} {indice[1][i+2]}/{indice[1][i+2]}/{indice[1][i+2]}\n')
-#     ff.close()
-
-def write_obj(Obj:MapObj, isherit, parent=None):
-    mesh = bpy.data.meshes.new("mesh")  # add a new mesh
-    indices = []
-    for indice in Obj.indices:
-        if indice[0] == 5:
-            tstrip = get_tstrip(indice[1])
-            for strip in tstrip:
-                indices.append((strip[0], strip[1], strip[2]))
-        elif indice[0] == 4:
-            for i in range(0, len(indice[1]), 3):
-                indices.append((indice[1][i]-1, indice[1][i+1]-1, indice[1][i+2]-1))
-    mesh.from_pydata(Obj.vertices, [], indices)
-    mesh.update()
-    obj = bpy.data.objects.new(Obj.name, mesh)
-    obj.data = mesh
-
-    bpy.context.collection.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(state=True)
-
-    mesh = bpy.context.selected_objects[0].data
-    for vert, normal in zip(mesh.vertices, Obj.normals):
-        vert.normal = normal
-
-    mesh.uv_layers.new(name="UVMap")
-
-    for face in obj.data.polygons:
-        for vert_idx, loop_idx in zip(face.vertices, face.loop_indices):
-            obj.data.uv_layers.active.data[loop_idx].uv = Obj.uvs[vert_idx]
-    
-    obj.active_material = bpy.data.materials.get(Obj.material)
-
-    obj.select_set(state=False)
-
-    obj.rotation_euler.x = math.radians(90.0)
-
-def read_obj(f:StreamReader, issubmesh):
-    Obj = MapObj()
-    subMeshCount = None
-    if issubmesh == False:
-        subMeshCount = read_int32(f)-1
-        if subMeshCount < 0:
-            return None, None
-    meshNameCount = read_int32(f)
-    Obj.name = f.read(meshNameCount).decode('ISO-8859-1')
-    if Obj.name == '':
-        Obj.name = 'mesh_' +  str(f.tell())
-    Obj.material = read_int32(f)
-    VerticesCount = read_int32(f)
-    Unk2 = read_int32(f)
-    IndicesCount = read_int32(f)
-    f.read(4)
-    startoffset = f.tell()
-    Vertices = Obj.vertices
-    for i in range(VerticesCount):
-        x = round(struct.unpack('f', f.read(4))[0], 4)
-        y = round(struct.unpack('f', f.read(4))[0], 4)
-        z = round(struct.unpack('f', f.read(4))[0], 4)
-        Vertices.append((x,y,z))
-        f.read(20)
-    f.seek(startoffset+(4*3))
-    UVs = Obj.uvs
-    for i in range(VerticesCount):
-        u = round(struct.unpack('f', f.read(4))[0], 4)
-        v = round(struct.unpack('f', f.read(4))[0], 4)
-        UVs.append((u,v))
-        f.read(24)
-    f.seek(startoffset+(4*5))
-    Normals = Obj.normals
-    for i in range(VerticesCount):
-        x = round(struct.unpack('f', f.read(4))[0], 4)
-        y = round(struct.unpack('f', f.read(4))[0], 4)
-        z = round(struct.unpack('f', f.read(4))[0], 4)
-        Normals.append((x,y,z))
-        f.read(20)
-    f.seek(-20, 1)
-    Indices = Obj.indices
-    for i in range(IndicesCount):
-        FaceType = read_int32(f)
-        Counts = read_int32(f)
-        asdf = []
-        for i in range(Counts):
-            asdf.append(read_int32(f)+1)
-        Indices.append([FaceType, asdf])
-
-    return Obj, subMeshCount
-
-def read_m3d(filepath, txd):
-    print(filepath)
+def read_m3d(filepath, txd, path_add, context):
     f = open(filepath, 'rb')
-    Unk1 = read_int32(f)
-    Unktable1 = []
-    UnkIndices = []
-    Textures = []
-    if Unk1 == 1:
-        for i in range(6):
-            Unktable1.append(read_int32(f))
-        f.seek(0xA8, 0)
-    elif Unk1 == 2:
-        for i in range(6):
-            Unktable1.append(read_int32(f))
-        f.seek(0xAC, 0)
-    Objs = []
-    for i in range(len(Unktable1)):
-        if i == 0:
-            for ii in range(Unktable1[i]):
-                UnkIndices = []
-                for k in range(10):
-                    UnkIndices.append(read_int32(f))
-                if Unk1 == 1:
-                    f.read(0x70)
-                    Unk3 = read_int32(f)
-                    f.read(0x28)
-                elif Unk1 == 2:
-                    f.read(0x74)
-                    Unk3 = read_int32(f)
-                    f.read(0x28)
-                for k in range(2):
-                    print(f.tell())
-                    Obj, subMeshCount = read_obj(f, False)
-                    if Obj != None:
-                        for i in range(subMeshCount):
-                            SubMesh = read_obj(f, True)[0]
-                            Obj.inherit.append(SubMesh)
-                        Objs.append(Obj)
-                        f.read(40)
-                    else:
-                        f.read(0x28)
-                f.seek(-4, 1)
-                for i in range(len(UnkIndices)):
-                    f.read(UnkIndices[i]*4)
-                for i in range(Unk3):
-                    f.read(4)
-                UnkVertices = []
-                for i in range(2):
-                    UnkVertices.append(read_int32(f))
-                for i in range(len(UnkVertices)):
-                    for k in range(UnkVertices[i]):
-                        f.read(4)
-                        count = read_int32(f)-2
-                        final = 0x30*count
-                        f.read(0x84+final)
-        elif i==1:
-            for i in range(Unktable1[i]):
-                NameCount = read_int32(f)
-                Textures.append(f.read(NameCount).decode('ISO-8859-1'))
-        else:
-            for i in range(Unktable1[i]):
-                print(f.tell())
-                Obj = MapObj()
-                meshNameCount = read_int32(f)
-                Obj.name = f.read(meshNameCount).decode('ISO-8859-1').replace("*","-")
-                subMeshCount = read_int32(f)-1
-                f.read(4)
-                f.read(meshNameCount)
-                Obj.material = read_int32(f)
-                VerticesCount = read_int32(f)
-                Unk2 = read_int32(f)
-                IndicesCount = read_int32(f)
-                f.read(4)
-                startoffset = f.tell()
-                Vertices = Obj.vertices
-                for i in range(VerticesCount):
-                    x = round(struct.unpack('f', f.read(4))[0], 4)
-                    y = round(struct.unpack('f', f.read(4))[0], 4)
-                    z = round(struct.unpack('f', f.read(4))[0], 4)
-                    Vertices.append((x,y,z))
-                    f.read(20)
-                f.seek(startoffset+(4*3))
-                UVs = Obj.uvs
-                for i in range(VerticesCount):
-                    u = round(struct.unpack('f', f.read(4))[0], 4)
-                    v = round(struct.unpack('f', f.read(4))[0], 4)
-                    UVs.append((u,v))
-                    f.read(24)
-                f.seek(startoffset+(4*5))
-                Normals = Obj.normals
-                for i in range(VerticesCount):
-                    x = round(struct.unpack('f', f.read(4))[0], 4)
-                    y = round(struct.unpack('f', f.read(4))[0], 4)
-                    z = round(struct.unpack('f', f.read(4))[0], 4)
-                    Normals.append((x,y,z))
-                    f.read(20)
-                f.seek(-20, 1)
-                Indices = Obj.indices
-                for i in range(IndicesCount):
-                    FaceType = read_int32(f)
-                    Counts = read_int32(f)
-                    asdf = []
-                    for i in range(Counts):
-                        asdf.append(read_int32(f)+1)
-                    Indices.append([FaceType, asdf])
-                Objs.append(Obj)
-                # print(f.tell())
-                f.read(0x24)
-    names = {}
-    for i in range(len(Objs)):
-        try:
-            names[Objs[i].name]
-            names[Objs[i].name] += "_"+str(i)
-            Objs[i].name += "_"+str(i)
-        except:
-            names[Objs[i].name] = Objs[i].name
+    txd += path_add
+    root = bpy.data.objects.new("empty", None)
+    root.name = os.path.basename(filepath)
+    root.rotation_euler.x = math.radians(90.0)
+    bpy.context.collection.objects.link(root)
+    bpy.context.view_layer.objects.active = root
+    track = C_Track()
+    track.MapVersion = read_int32(f)
+    track.m_nNodeNum = read_int32(f)
+    track.m_nMaterialNum = read_int32(f)
+    track.m_nStructureNum = read_int32(f)
+    track.m_nInstallNum = read_int32(f)
+    track.m_nUnderSignNum = read_int32(f)
+    track.m_nDummyNum = read_int32(f)
+    track.m_nLightNum = read_int32(f)
+    track.m_nGateNum = read_int32(f)
+    track.m_nDestNum = read_int32(f)
+    track.m_WarpZoneNum = read_int32(f)
+    track.m_OneSideInstallNum = read_int32(f)
+    track.m_nLightMapNum = read_int32(f)
+    if track.MapVersion >= 5:
+        track.m_nGuildFlagNum = read_int32(f)
+    track.m_BillboardNum = read_int32(f)
+    track.m_CheckPointNum = read_int32(f)
+    if track.MapVersion >= 4:
+        track.m_nRoadAttachmentNum = read_int32(f)
+
+    for i in range(27):
+        track.m_ReservedNum.append(read_int32(f))
+
+    if track.MapVersion >= 2:
+        track.m_PokjuZoneNum = read_int32(f)
+    if track.MapVersion >= 3:
+        track.m_AdvencedZoneNum = read_int32(f)
+    if track.MapVersion >= 5:
+        track.m_GuildBattleZoneNum = read_int32(f)
+    if track.MapVersion >= 6:
+        track.m_DriftZoneNum = read_int32(f)
+    
+    if track.m_nNodeNum > 0:
+        for i in range(track.m_nNodeNum):
+            node = C_Node()
+            C_Node.Load(node, f, track.MapVersion)
+            track.m_Node.append(node)
+        
+    if not track.m_nMaterialNum <= 0:
+        for i in range(track.m_nMaterialNum):
+            mat = _S_Material()
+            mat.NameLen = read_int32(f)
+            mat.TextureName = f.read(mat.NameLen).decode('ISO-8859-1')
+            track.m_Material.append(mat)
 
     fp = ''
     for mod in addon_utils.modules():
@@ -287,81 +82,39 @@ def read_m3d(filepath, txd):
     except:
         pass
 
-    for texture in Textures:
-        file = txd + '\\' +  texture.split('.')[0] + '.ss'
-        f = open(file, 'rb')
-        f.read(4)
-        Width = read_int32(f)
-        Height = read_int32(f)
-        BitLevel = read_int32(f)
-        f.read(4*2)
-        FrameCount = read_int32(f)
-        TextureSize = read_int32(f)
-        Content = bytearray(f.read(TextureSize))
-        if BitLevel == 24:
-            for i in range(0, len(Content), 3):
-                first = Content[i]
-                third = Content[i+2]
-                Content[i] = third
-                Content[i+2] = first
-                
-            Final = b''
-            Final += b'\x42\x4D'
-            Final += ((TextureSize) + 40 + 14).to_bytes(4, byteorder='little')
-            Final += b'\x00\x00\x00\x00\x36\x00\x00\x00\x28\x00\x00\x00'
-            Final += Width.to_bytes(4, byteorder='little')
-            Final += Height.to_bytes(4, byteorder='little')
-            Final += b'\x01\x00\x18\x00\x00\x00\x00\x00'
-            Final += (TextureSize).to_bytes(4, byteorder='little')
-            Final += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            Final += Content
-            ff = open(fp+'\\textures\\' + os.path.basename(file).split(".")[0] + ".bmp", 'wb')
-            ff.write(Final)
-            ff.close()
-        elif BitLevel == 32:
-            for i in range(0, len(Content), 4):
-                first = Content[i]
-                third = Content[i+2]
-                Content[i] = third
-                Content[i+2] = first
-            Final = b''
-            Final += b'\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            Final += Width.to_bytes(2, byteorder='little')
-            Final += Height.to_bytes(2, byteorder='little')
-            Final += b'\x20\x00'
-            Final += Content
-            ff = open(fp+'\\textures\\' + os.path.basename(file).split(".")[0] + ".tga", 'wb')
-            ff.write(Final)
-            ff.close()
-        mat = bpy.data.materials.new(texture)
-        if texture.split('.')[1].lower() == "tga":
-            mat.blend_method = "CLIP"
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes["Principled BSDF"]
-        texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
-        try:
-            texImage.image = bpy.data.images.load(fp+'textures/'+texture)
-            mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-            mat.node_tree.links.new(bsdf.inputs['Alpha'], texImage.outputs['Alpha'])
-        except:
-            if texture.split(".")[1] == "bmp":
-                texture.replace("bmp", "tga")
-            else:
-                texture.replace("tga", "bmp")
-            try:
-                texImage.image = bpy.data.images.load(fp+'textures/'+texture)
-                mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-                mat.node_tree.links.new(bsdf.inputs['Alpha'], texImage.outputs['Alpha'])
-            except:
-                print("Texture " + texture.split(".")[0] + " Couldn't find")
-            
-    for obj in Objs:
-        obj.material = Textures[obj.material]
-        for objj in obj.inherit:
-            objj.material = Textures[objj.material]
+    for texture in track.m_Material:
+        mat = bpy.data.materials.new(texture.TextureName)
 
-    # write_obj(Objs[0], False)
-    for i in range(len(Objs)):
-        write_obj(Objs[i], False)
-        for k in range(len(Objs[i].inherit)):
-            write_obj(Objs[i].inherit[k], True, Objs[i])
+    DecodeSS(track.m_Material, txd, fp)
+
+    if track.m_nNodeNum > 0:
+        noderoot = bpy.data.objects.new("empty", None)
+        noderoot.name = "Nodes"
+        bpy.context.collection.objects.link(noderoot)
+        bpy.context.view_layer.objects.active = noderoot
+        noderoot.parent = bpy.data.objects[root.name]
+        for node in track.m_Node:
+            noderoot_ = bpy.data.objects.new("empty", None)
+            noderoot_.name = "Node"
+            bpy.context.collection.objects.link(noderoot_)
+            bpy.context.view_layer.objects.active = noderoot_
+            noderoot_.parent = bpy.data.objects[noderoot.name]
+            loadmesh(node.m_Road, noderoot, track)
+            loadmesh(node.m_Fence, noderoot, track)
+
+    if track.m_nStructureNum > 0:
+        load_mesh(f, track, "Structure", root, track.m_nStructureNum)
+    if track.m_nInstallNum > 0:
+        load_mesh(f, track, "Install", root, track.m_nInstallNum)
+    if track.m_nUnderSignNum > 0:
+        load_mesh(f, track, "UnderSign", root, track.m_nUnderSignNum)
+    if track.m_nDummyNum > 0:
+        load_mesh(f, track, "Dummy", root, track.m_nDummyNum)
+    if track.m_nLightNum > 0:
+        load_mesh(f, track, "Light", root, track.m_nLightNum)
+    
+    if track.m_nGateNum > 0:
+        for i in range(track.m_nGateNum):
+            newmesh = _S_Gate()
+            _S_Gate.Load(newmesh, f)
+            track.m_Gate.append(newmesh)
