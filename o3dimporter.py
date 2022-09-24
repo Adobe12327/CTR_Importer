@@ -22,6 +22,7 @@ def ConvertToTxt_Old(data, size):
 
 def read_o3d(filepath, txd, path_add, context):
     f = open(filepath, 'rb')
+    txd += path_add
     Meshes = []
     meshNum = read_int32(f)
     materialNum = read_int32(f)
@@ -48,25 +49,25 @@ def read_o3d(filepath, txd, path_add, context):
         return
     saveName = Decode(encodeNum, ConvertToTxt_Old(bytearray(f.read(nameSize)), nameSize), nameSize).decode('ISO-8859-1')
 
-    if not txd == '':
-        txd += path_add
-        fp = ''
-        for mod in addon_utils.modules():
-            if mod.bl_info['name'] == "CTR Importer":
-                fp = mod.__file__
-                fp = fp.replace('__init__.py', '')
-            else:
-                pass
-
-        try: 
-            os.makedirs(fp + "\\textures")
-        except:
+    fp = ''
+    for mod in addon_utils.modules():
+        if mod.bl_info['name'] == "CTR Importer":
+            fp = mod.__file__
+            fp = fp.replace('__init__.py', '')
+        else:
             pass
 
-        for texture in Material:
-            mat = bpy.data.materials.new(texture.TextureName)
+    try: 
+        os.makedirs(fp + "\\textures")
+    except:
+        pass
 
-        DecodeSS(Material, txd, fp)
+    for texture in Material:
+        mat = bpy.data.materials.new(texture.TextureName)
+
+    DecodeSS(Material, txd, fp)
+
+
 
     root = bpy.data.objects.new("empty", None)
     root.name = os.path.basename(filepath)
@@ -75,7 +76,7 @@ def read_o3d(filepath, txd, path_add, context):
     bpy.context.view_layer.objects.active = root
 
     for obj in Meshes:
-        parent = write_obj(obj, True, root)
+        parent = write_obj(obj, root)
         for objj in obj.m_SubMesh:
             objj.m_MaterialID = Material[objj.m_MaterialID]
-            write_obj(objj, True, parent)
+            write_obj(objj, parent)
