@@ -22,7 +22,6 @@ def read_b3d(filepath, txd, path_add, context):
         mat = _S_Material()
         mat.NameLen = read_int32(f)
         mat.TextureName = f.read(mat.NameLen).decode('ISO-8859-1')
-        # mat.TextureName = mat.TextureName.split(".")[0]+"#0804."+mat.TextureName.split(".")[1]
         car.Material.append(mat)
     if car.LodLevel > 0:
         for i in range(car.LodLevel):
@@ -70,19 +69,21 @@ def read_b3d(filepath, txd, path_add, context):
 
                 
     for obj in car.LodBody:
-        parent = write_obj(obj, True, root)
+        parent = write_obj(obj, root)
         for objj in obj.m_SubMesh:
             objj.m_MaterialID = car.Material[objj.m_MaterialID]
-            write_obj(objj, True, parent)
+            write_obj(objj, parent)
     for obj in car.Mesh:
-        parent = write_obj(obj, True, root)
+        parent = write_obj(obj, root)
         for objj in obj.m_SubMesh:
             objj.m_MaterialID = car.Material[objj.m_MaterialID]
-            write_obj(objj, True, parent)
+            write_obj(objj, parent)
 
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.normals_make_consistent(inside=False)
+    # bpy.ops.mesh.remove_doubles(threshold = 0.00001)
+    # bpy.ops.mesh.average_normals(average_type='CUSTOM_NORMAL')
+    # bpy.ops.mesh.normals_make_consistent(inside=False)
     bpy.ops.object.editmode_toggle()
     bpy.ops.object.select_all(action='DESELECT')
