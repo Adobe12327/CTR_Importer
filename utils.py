@@ -95,18 +95,23 @@ class _S_Default_Car():
         self.Mesh = [] # 21
         self.SaveName = ''
 
-def get_tstrip(value):
+def get_tstrip(values):
     result = []
-    for i in range(len(value)):
+    for i in range(0, len(values), 2):
         try:
-            a = value[i]
-            b = value[i+1]
-            c = value[i+2]
+            a = values[i]
+            b = values[i+1]
+            c = values[i+2]
+            d = values[i+3]
             result.append((a,b,c))
+            result.append((d,c,b))
         except:
-            pass
+            if a != None and b != None and c != None:
+                result.append((a,b,c))
+            if b != None and c != None and b != None:
+                result.append((d,c,b))
     return result
-
+    
 def write_obj(Obj:C_SubMesh, parent=None):
     if isinstance(Obj, C_SubMesh):
         mesh = bpy.data.meshes.new(Obj.m_SubMeshName)  # add a new mesh
@@ -129,8 +134,6 @@ def write_obj(Obj:C_SubMesh, parent=None):
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
-
-        mesh = bpy.context.selected_objects[0].data
         for vert, normal in zip(mesh.vertices, Obj.m_VertexNList):
             vert.normal = normal
 
@@ -422,8 +425,9 @@ class C_Node():
             self.m_Billboard.append(read_int32(f))
         for i in range(self.m_CheckPointNum):
             self.m_CheckPoint.append(read_int32(f))
-        if MapVersion >= 4:
-            self.m_RoadAttachment.append(read_int32(f))
+        # if MapVersion >= 4:
+        #     self.m_RoadAttachment.append(read_int32(f))
+        # print(f.tell())
         for i in range(27):
             f.read(4*self.m_ReservedNum[i])
         if MapVersion >= 2:
