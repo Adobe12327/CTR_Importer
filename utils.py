@@ -134,8 +134,7 @@ def write_obj(Obj:C_SubMesh, parent=None):
         bpy.context.collection.objects.link(obj)
         bpy.context.view_layer.objects.active = obj
         obj.select_set(True)
-        for vert, normal in zip(mesh.vertices, Obj.m_VertexNList):
-            vert.normal = normal
+        mesh.normals_split_custom_set_from_vertices(Obj.m_VertexNList)
 
         mesh.uv_layers.new(name="UVMap")
 
